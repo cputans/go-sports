@@ -31,10 +31,13 @@ type Boxscore struct {
 	AwayTeam           string            `fullSelector:"div.scorebox div:nth-child(1) div:nth-child(1) strong:nth-child(2) a:nth-child(1)"`
 	AwayTeamLink       string            `fullSelector:"div.scorebox > div:nth-child(1) > div:nth-child(1) > strong:nth-child(2) > a" attr:"href"`
 	AwayTeamShortName  string
-	AwayTeamScore      uint                           `fullSelector:"div.scorebox div:nth-child(1) div:nth-child(2) div:nth-child(1)"`
-	AwayTeamStats      BoxscoreTeamStats              `tableId:"team_stats" cell:"0"`
+	AwayTeamScore      uint              `fullSelector:"div.scorebox div:nth-child(1) div:nth-child(2) div:nth-child(1)"`
+	AwayTeamStats      BoxscoreTeamStats `tableId:"team_stats" cell:"0"`
+	Players            map[string]BoxscorePlayer
 	PlayerStatsOffense []BoxscorePlayerOffensiveStats `tableId:"player_offense" rowSelector:"tr:not(.thead)" cellSelector:"td,th"`
 	PlayerStatsDefense []BoxscorePlayerDefensiveStats `tableId:"player_defense" rowSelector:"tr:not(.thead)" cellSelector:"td,th"`
+	HomeSnapCounts     []BoxscoreSnapCounts           `tableId:"home_snap_counts" cellSelector:"td,th"`
+	AwaySnapCounts     []BoxscoreSnapCounts           `tableId:"vis_snap_counts" cellSelector:"td,th"`
 	URL                string
 }
 
@@ -50,6 +53,29 @@ type BoxscoreTeamStats struct {
 	PassingYards         int
 	PassingTouchdowns    uint
 	PassingInterceptions uint
+}
+
+type BoxscorePlayer struct {
+	Name          string
+	ID            string
+	TeamShortName string
+	BoxscoreSnapCounts
+	BoxscorePlayerOffensiveStats
+	BoxscorePlayerDefensiveStats
+	URL string
+}
+
+type BoxscoreSnapCounts struct {
+	Name                       string `cell:"0"`
+	ID                         string
+	Position                   string `cell:"1"`
+	OffSnapCount               uint   `cell:"2"`
+	OffSnapPercentage          string `cell:"3"`
+	DefSnapCount               uint   `cell:"4"`
+	DefSnapPercentage          string `cell:"5"`
+	SpecialTeamsSnapCount      uint   `cell:"6"`
+	SpecialTeamsSnapPercentage string `cell:"7"`
+	URL                        string `cell:"0" dataSelector:"a" attr:"href"`
 }
 
 type BoxscorePlayerOffensiveStats struct {
@@ -94,6 +120,7 @@ type BoxscorePlayerDefensiveStats struct {
 	TacklesForLoss         uint    `cell:"11"`
 	QuarterbackHits        uint    `cell:"12"`
 	FumblesRecovered       uint    `cell:"13"`
+	FumblesForced          uint    `cell:"16"`
 	URL                    string  `cell:"0" dataSelector:"a" attr:"href"`
 }
 
@@ -129,39 +156,6 @@ func (g *Boxscore) PostProcess() {
 	g.parsePassingStats(&g.AwayTeamStats)
 	g.parsePassingStats(&g.HomeTeamStats)
 
-	/* Set player IDs */
-	playerIdRegex := regexp.MustCompile("players/[A-Za-z0-9]+/([A-Za-z0-9.]+).htm")
-	for i, p := range g.PlayerStatsOffense {
-		idMatches := playerIdRegex.FindStringSubmatch(p.URL)
-		if idMatches != nil {
-			player := g.PlayerStatsOffense[i]
-			player.ID = idMatches[1]
-
-			/* Set team abbr */
-			if val, ok := TEAM_ABBR_MAP[player.TeamShortName]; ok {
-				player.TeamShortName = val
-			}
-
-			g.PlayerStatsOffense[i] = player
-		}
-	}
-
-	for i, p := range g.PlayerStatsDefense {
-		idMatches := playerIdRegex.FindStringSubmatch(p.URL)
-		if idMatches != nil {
-			player := g.PlayerStatsDefense[i]
-			player.ID = idMatches[1]
-
-			/* Set team abbr */
-			if val, ok := TEAM_ABBR_MAP[player.TeamShortName]; ok {
-				player.TeamShortName = val
-			}
-
-			g.PlayerStatsDefense[i] = player
-		}
-
-	}
-
 	/* Get short names */
 	shortNameRegex := regexp.MustCompile("/teams/([A-Za-z]+)/[A-Za-z0-9.]+.htm")
 	homeMatches := shortNameRegex.FindStringSubmatch(g.HomeTeamLink)
@@ -173,6 +167,9 @@ func (g *Boxscore) PostProcess() {
 	if awayMatches != nil {
 		g.AwayTeamShortName = strings.ToUpper(awayMatches[1])
 	}
+
+	g.Players = map[string]BoxscorePlayer{}
+	g.parsePlayers()
 }
 
 func (g *Boxscore) parseRushingStats(s *BoxscoreTeamStats) {
@@ -208,5 +205,120 @@ func (g *Boxscore) parsePassingStats(s *BoxscoreTeamStats) {
 
 		passingInts, _ := strconv.ParseUint(passing[4], 10, 64)
 		s.PassingInterceptions = uint(passingInts)
+	}
+}
+
+func (g *Boxscore) parsePlayers() {
+	playerIdRegex := regexp.MustCompile("players/[A-Za-z0-9]+/([A-Za-z0-9.]+).htm")
+
+	for i, p := range g.HomeSnapCounts {
+		idMatches := playerIdRegex.FindStringSubmatch(p.URL)
+		if idMatches != nil {
+			playerId := idMatches[1]
+
+			/* Set team abbr */
+			teamShortName := g.HomeTeamShortName
+			if val, ok := TEAM_ABBR_MAP[teamShortName]; ok {
+				teamShortName = val
+			}
+
+			if val, ok := g.Players[playerId]; !ok {
+				g.Players[playerId] = BoxscorePlayer{
+					BoxscoreSnapCounts: g.HomeSnapCounts[i],
+					TeamShortName:      teamShortName,
+					Name:               g.HomeSnapCounts[i].Name,
+					ID:                 playerId,
+					URL:                g.HomeSnapCounts[i].URL,
+				}
+			} else {
+				player := val
+				player.BoxscoreSnapCounts = g.HomeSnapCounts[i]
+				g.Players[playerId] = player
+
+			}
+		}
+	}
+
+	for i, p := range g.AwaySnapCounts {
+		idMatches := playerIdRegex.FindStringSubmatch(p.URL)
+		if idMatches != nil {
+			playerId := idMatches[1]
+
+			/* Set team abbr */
+			teamShortName := g.AwayTeamShortName
+			if val, ok := TEAM_ABBR_MAP[teamShortName]; ok {
+				teamShortName = val
+			}
+
+			if val, ok := g.Players[playerId]; !ok {
+				g.Players[playerId] = BoxscorePlayer{
+					BoxscoreSnapCounts: g.AwaySnapCounts[i],
+					Name:               g.AwaySnapCounts[i].Name,
+					ID:                 playerId,
+					TeamShortName:      teamShortName,
+					URL:                g.AwaySnapCounts[i].URL,
+				}
+			} else {
+				player := val
+				player.BoxscoreSnapCounts = g.AwaySnapCounts[i]
+				g.Players[playerId] = player
+
+			}
+		}
+	}
+
+	for i, p := range g.PlayerStatsOffense {
+		idMatches := playerIdRegex.FindStringSubmatch(p.URL)
+		if idMatches != nil {
+			playerId := idMatches[1]
+
+			/* Set team abbr */
+			teamShortName := p.TeamShortName
+			if val, ok := TEAM_ABBR_MAP[teamShortName]; ok {
+				teamShortName = val
+			}
+
+			if val, ok := g.Players[playerId]; !ok {
+				g.Players[playerId] = BoxscorePlayer{
+					BoxscorePlayerOffensiveStats: g.PlayerStatsOffense[i],
+					Name:                         g.PlayerStatsOffense[i].Name,
+					ID:                           playerId,
+					TeamShortName:                teamShortName,
+					URL:                          g.PlayerStatsOffense[i].URL,
+				}
+			} else {
+				player := val
+				player.BoxscorePlayerOffensiveStats = g.PlayerStatsOffense[i]
+				g.Players[playerId] = player
+
+			}
+		}
+	}
+
+	for i, p := range g.PlayerStatsDefense {
+		idMatches := playerIdRegex.FindStringSubmatch(p.URL)
+		if idMatches != nil {
+			playerId := idMatches[1]
+
+			/* Set team abbr */
+			teamShortName := p.TeamShortName
+			if val, ok := TEAM_ABBR_MAP[teamShortName]; ok {
+				teamShortName = val
+			}
+
+			if val, ok := g.Players[playerId]; !ok {
+				g.Players[playerId] = BoxscorePlayer{
+					BoxscorePlayerDefensiveStats: g.PlayerStatsDefense[i],
+					Name:                         g.PlayerStatsDefense[i].Name,
+					ID:                           playerId,
+					TeamShortName:                teamShortName,
+					URL:                          g.PlayerStatsDefense[i].URL,
+				}
+			} else {
+				player := val
+				player.BoxscorePlayerDefensiveStats = g.PlayerStatsDefense[i]
+				g.Players[playerId] = player
+			}
+		}
 	}
 }
