@@ -32,12 +32,14 @@ func TestBoxscorePostProcess(t *testing.T) {
 		AwayTeamStats: BoxscoreTeamStats{},
 		PlayerStatsOffense: []BoxscorePlayerOffensiveStats{
 			{
-				URL: "players/b/billdinkens.htm",
+				URL:  "players/b/billdinkens.htm",
+				Name: "Bill Dinkens",
 			},
 		},
 		PlayerStatsDefense: []BoxscorePlayerDefensiveStats{
 			{
-				URL: "players/p/philbertjohnson.htm",
+				URL:  "players/p/philbertjohnson.htm",
+				Name: "Philbert Johnson",
 			},
 		},
 	}
@@ -108,15 +110,15 @@ func TestBoxscorePostProcess(t *testing.T) {
 
 	/* Players */
 	assert.Equal(t,
-		b.PlayerStatsOffense[0].ID,
-		"billdinkens",
-		fmt.Sprintf("expected offensive player 1 ID = billdinkens, got %s", b.PlayerStatsOffense[0].ID),
+		b.Players["billdinkens"].Name,
+		"Bill Dinkens",
+		fmt.Sprintf("expected player name = Bill Dinkens, got %s", b.Players["billdinkens"].Name),
 	)
 
 	assert.Equal(t,
-		b.PlayerStatsDefense[0].ID,
-		"philbertjohnson",
-		fmt.Sprintf("expected defensive player 1 ID = philbertjohnson, got %s", b.PlayerStatsOffense[0].ID),
+		b.Players["philbertjohnson"].Name,
+		"Philbert Johnson",
+		fmt.Sprintf("expected player name = Philbert Johnson, got %s", b.Players["philbertjohnson"].Name),
 	)
 
 }
