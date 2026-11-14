@@ -2,94 +2,101 @@ package nfl
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
-
-	"github.com/cputans/go-sports/internal"
 )
 
 type Team struct {
-	Name                         string `fullSelector:"#meta > div:nth-child(2) > h1:nth-child(1) > span:nth-child(2)"`
-	ShortName                    string
-	PointsFor                    uint       `tableId:"team_stats" row:"0" cell:"0"`
-	Yards                        uint       `tableId:"team_stats" row:"0" cell:"1"`
-	OffensivePlays               uint       `tableId:"team_stats" row:"0" cell:"2"`
-	YardsPerPlay                 float64    `tableId:"team_stats" row:"0" cell:"3"`
-	Turnovers                    uint       `tableId:"team_stats" row:"0" cell:"4"`
-	FumblesLost                  uint       `tableId:"team_stats" row:"0" cell:"5"`
-	FirstDowns                   uint       `tableId:"team_stats" row:"0" cell:"6"`
-	Completions                  uint       `tableId:"team_stats" row:"0" cell:"7"`
-	PassingAttempts              uint       `tableId:"team_stats" row:"0" cell:"8"`
-	PassingYards                 int        `tableId:"team_stats" row:"0" cell:"9"`
-	PassingTouchdowns            uint       `tableId:"team_stats" row:"0" cell:"10"`
-	Interceptions                uint       `tableId:"team_stats" row:"0" cell:"11"`
-	PassingNetYardsPerAttempt    float64    `tableId:"team_stats" row:"0" cell:"12"`
-	PassingFirstDowns            uint       `tableId:"team_stats" row:"0" cell:"13"`
-	RushingAttempts              uint       `tableId:"team_stats" row:"0" cell:"14"`
-	RushingYards                 int        `tableId:"team_stats" row:"0" cell:"15"`
-	RushingTouchdowns            uint       `tableId:"team_stats" row:"0" cell:"16"`
-	RushingYardsPerAttempt       float64    `tableId:"team_stats" row:"0" cell:"17"`
-	RushingFirstDowns            uint       `tableId:"team_stats" row:"0" cell:"18"`
-	Penalties                    uint       `tableId:"team_stats" row:"0" cell:"19"`
-	PenaltyYards                 uint       `tableId:"team_stats" row:"0" cell:"20"`
-	PenaltyFirstDowns            uint       `tableId:"team_stats" row:"0" cell:"21"`
-	DriveCount                   uint       `tableId:"team_stats" row:"0" cell:"22"`
-	DriveScoringPercentage       float64    `tableId:"team_stats" row:"0" cell:"23"`
-	DriveTurnoverPercentage      float64    `tableId:"team_stats" row:"0" cell:"24"`
-	DriveAverageStart            string     `tableId:"team_stats" row:"0" cell:"25"`
-	DriveAverageTime             string     `tableId:"team_stats" row:"0" cell:"26"`
-	DriveAveragePlays            uint       `tableId:"team_stats" row:"0" cell:"27"`
-	DriveAverageYards            float64    `tableId:"team_stats" row:"0" cell:"28"`
-	DriveAveragePoints           float64    `tableId:"team_stats" row:"0" cell:"29"`
-	OppOppPointsFor              uint       `tableId:"team_stats" row:"1" cell:"0"`
-	OppYards                     int        `tableId:"team_stats" row:"1" cell:"1"`
-	OppOffensivePlays            uint       `tableId:"team_stats" row:"1" cell:"2"`
-	OppYardsPerPlay              float64    `tableId:"team_stats" row:"1" cell:"3"`
-	OppTurnovers                 uint       `tableId:"team_stats" row:"1" cell:"4"`
-	OppFumblesLost               uint       `tableId:"team_stats" row:"1" cell:"5"`
-	OppFirstDowns                uint       `tableId:"team_stats" row:"1" cell:"6"`
-	OppCompletions               uint       `tableId:"team_stats" row:"1" cell:"7"`
-	OppPassingAttempts           uint       `tableId:"team_stats" row:"1" cell:"8"`
-	OppPassingYards              int        `tableId:"team_stats" row:"1" cell:"9"`
-	OppPassingTouchdowns         uint       `tableId:"team_stats" row:"1" cell:"10"`
-	OppInterceptions             uint       `tableId:"team_stats" row:"1" cell:"11"`
-	OppPassingNetYardsPerAttempt float64    `tableId:"team_stats" row:"1" cell:"12"`
-	OppPassingFirstDowns         uint       `tableId:"team_stats" row:"1" cell:"13"`
-	OppRushingAttempts           uint       `tableId:"team_stats" row:"1" cell:"14"`
-	OppRushingYards              int        `tableId:"team_stats" row:"1" cell:"15"`
-	OppRushingTouchdowns         uint       `tableId:"team_stats" row:"1" cell:"16"`
-	OppRushingYardsPerAttempt    float64    `tableId:"team_stats" row:"1" cell:"17"`
-	OppRushingFirstDowns         uint       `tableId:"team_stats" row:"1" cell:"18"`
-	OppPenalties                 uint       `tableId:"team_stats" row:"1" cell:"19"`
-	OppPenaltyYards              uint       `tableId:"team_stats" row:"1" cell:"20"`
-	OppPenaltyFirstDowns         uint       `tableId:"team_stats" row:"1" cell:"21"`
-	OppDriveCount                uint       `tableId:"team_stats" row:"1" cell:"22"`
-	OppDriveScoringPercentage    float64    `tableId:"team_stats" row:"1" cell:"23"`
-	OppDriveTurnoverPercentage   float64    `tableId:"team_stats" row:"1" cell:"24"`
-	OppDriveAverageStart         string     `tableId:"team_stats" row:"1" cell:"25"`
-	OppDriveAverageTime          string     `tableId:"team_stats" row:"1" cell:"26"`
-	OppDriveAveragePlays         uint       `tableId:"team_stats" row:"1" cell:"27"`
-	OppDriveAverageYards         float64    `tableId:"team_stats" row:"1" cell:"28"`
-	OppDriveAveragePoints        float64    `tableId:"team_stats" row:"1" cell:"29"`
-	Games                        []TeamGame `tableId:"games" cellSelector:"td,th"`
-	URL                          string
-	Data                         []byte
+	Name      string
+	ShortName string
+	Year      uint
+
+	// Team offense (regular season to date). Rates are as PFR reports them.
+	PointsFor                 uint
+	Yards                     uint
+	OffensivePlays            uint
+	YardsPerPlay              float64
+	Turnovers                 uint
+	FumblesLost               uint
+	FirstDowns                uint
+	Completions               uint
+	PassingAttempts           uint
+	PassingYards              int
+	PassingTouchdowns         uint
+	Interceptions             uint
+	PassingNetYardsPerAttempt float64
+	PassingFirstDowns         uint
+	RushingAttempts           uint
+	RushingYards              int
+	RushingTouchdowns         uint
+	RushingYardsPerAttempt    float64
+	RushingFirstDowns         uint
+	Penalties                 uint
+	PenaltyYards              uint
+	PenaltyFirstDowns         uint
+	DriveCount                uint
+	DriveScoringPercentage    float64
+	DriveTurnoverPercentage   float64
+	DriveAverageStart         string
+	DriveAverageTime          string
+	DriveAveragePlays         float64
+	DriveAverageYards         float64
+	DriveAveragePoints        float64
+
+	// Opponent offense, i.e. what the team's defense allowed. OppOppPointsFor
+	// keeps its original (misspelled) name for compatibility; PointsAgainst is
+	// the same value.
+	OppOppPointsFor              uint
+	OppYards                     int
+	OppOffensivePlays            uint
+	OppYardsPerPlay              float64
+	OppTurnovers                 uint
+	OppFumblesLost               uint
+	OppFirstDowns                uint
+	OppCompletions               uint
+	OppPassingAttempts           uint
+	OppPassingYards              int
+	OppPassingTouchdowns         uint
+	OppInterceptions             uint
+	OppPassingNetYardsPerAttempt float64
+	OppPassingFirstDowns         uint
+	OppRushingAttempts           uint
+	OppRushingYards              int
+	OppRushingTouchdowns         uint
+	OppRushingYardsPerAttempt    float64
+	OppRushingFirstDowns         uint
+	OppPenalties                 uint
+	OppPenaltyYards              uint
+	OppPenaltyFirstDowns         uint
+	OppDriveCount                uint
+	OppDriveScoringPercentage    float64
+	OppDriveTurnoverPercentage   float64
+	OppDriveAverageStart         string
+	OppDriveAverageTime          string
+	OppDriveAveragePlays         float64
+	OppDriveAverageYards         float64
+	OppDriveAveragePoints        float64
+
+	PointsAgainst uint
+	Games         []TeamGame
+	URL           string
+
+	// Err is set by Parse when the team could not be loaded.
+	Err error
 }
 
 type TeamGame struct {
-	ID                string
-	Week              string `tableId:"games" cell:"0"`
-	Day               string `tableId:"games" cell:"1"`
-	DateStr           string `tableId:"games" cell:"2"`
-	TimeStr           string `tableId:"games" cell:"3"`
+	ID                string // PFR-style boxscore id, e.g. 202609130nyg
+	Week              string
+	Day               string
+	DateStr           string
 	Date              time.Time
-	BoxscoreLink      string `tableId:"games" cell:"4" dataSelector:"a" attr:"href"`
-	Result            string `tableId:"games" cell:"5"`
-	Overtime          string `tableId:"games" cell:"6"`
-	Location          string `tableId:"games" cell:"8"`
-	Opponent          string `tableId:"games" cell:"9"`
-	OpponentLink      string `tableId:"games" cell:"9" dataSelector:"a" attr:"href"`
+	BoxscoreLink      string // e.g. /boxscores/202609130nyg.htm
+	Result            string // "W", "L" or "T"; empty until the game is played
+	Overtime          string
+	Location          string // "home" or "away"
+	Opponent          string
+	OpponentLink      string
 	HomeTeam          string
 	HomeTeamShortName string
 	AwayTeam          string
@@ -97,51 +104,147 @@ type TeamGame struct {
 }
 
 func NewTeam(shortName string, year uint) *Team {
-	url := fmt.Sprintf(TEAM_URL, strings.ToLower(shortName), year)
-
-	return &Team{
-		URL:       url,
-		ShortName: shortName,
+	t := &Team{ShortName: shortName, Year: year}
+	if info := findTeam(shortName); info != nil {
+		t.Name = info.Name
+		t.URL = fmt.Sprintf(TEAM_URL, strings.ToLower(info.PFR), year)
 	}
+	return t
 }
 
+// Parse builds the team's schedule from nflverse data.
 func (t *Team) Parse() {
-	internal.Parse(t, t.URL)
-}
+	info := findTeam(t.ShortName)
+	if info == nil {
+		t.Err = fmt.Errorf("unknown team %q", t.ShortName)
+		return
+	}
 
-func (t *Team) PostProcess() {
-	var newGames []TeamGame
-	oppShortNameRegex := regexp.MustCompile("/teams/([A-Za-z]+)/[A-Za-z0-9.]+.htm")
-	for _, g := range t.Games {
-		if g.BoxscoreLink != "" {
-			/* Get opponent short name */
-			oppShortNameMatches := oppShortNameRegex.FindStringSubmatch(g.OpponentLink)
+	data, err := loadSeason(int(t.Year))
+	if err != nil {
+		t.Err = err
+		return
+	}
 
-			/* ID */
-			idRegex := regexp.MustCompile("/boxscores/([^.]+).htm")
-			idMatches := idRegex.FindStringSubmatch(g.BoxscoreLink)
-			if idMatches != nil {
-				g.ID = idMatches[1]
-			}
+	t.Name = info.Name
+	t.Games = nil
 
-			if strings.Contains(g.Location, "@") {
-				g.Location = "away"
-				g.HomeTeam = g.Opponent
-				g.HomeTeamShortName = oppShortNameMatches[1]
-				g.AwayTeam = t.Name
-				g.AwayTeamShortName = t.ShortName
-			} else {
-				g.Location = "home"
-				g.HomeTeam = t.Name
-				g.HomeTeamShortName = t.ShortName
-				g.AwayTeam = g.Opponent
-				g.AwayTeamShortName = oppShortNameMatches[1]
-			}
+	var ours, theirs sideTotals
 
-			newGames = append(newGames, g)
+	for _, g := range data.games {
+		home, away := findTeam(g.Home), findTeam(g.Away)
+		if g.PFRID == "" || home == nil || away == nil || (home != info && away != info) {
+			continue
 		}
 
+		tg := TeamGame{
+			ID:                g.PFRID,
+			Week:              fmt.Sprint(g.Week),
+			Day:               g.Date.Format("Mon"),
+			DateStr:           g.Date.Format("2006-01-02"),
+			Date:              g.Date,
+			BoxscoreLink:      fmt.Sprintf("/boxscores/%s.htm", g.PFRID),
+			HomeTeam:          home.Name,
+			HomeTeamShortName: strings.ToLower(home.PFR),
+			AwayTeam:          away.Name,
+			AwayTeamShortName: strings.ToLower(away.PFR),
+		}
+
+		myScore, oppScore, opp := g.HomeScore, g.AwayScore, away
+		tg.Location = "home"
+		if away == info {
+			myScore, oppScore, opp = g.AwayScore, g.HomeScore, home
+			tg.Location = "away"
+		}
+		tg.Opponent = opp.Name
+		tg.OpponentLink = fmt.Sprintf("/teams/%s/%d.htm", strings.ToLower(opp.PFR), t.Year)
+
+		if g.Played {
+			switch {
+			case myScore > oppScore:
+				tg.Result = "W"
+			case myScore < oppScore:
+				tg.Result = "L"
+			default:
+				tg.Result = "T"
+			}
+			if g.Overtime {
+				tg.Overtime = "OT"
+			}
+			if g.Type == "REG" {
+				ours.add(data.gameSide(g, info.Abbr))
+				theirs.add(data.gameSide(g, opp.Abbr))
+			}
+		}
+
+		t.Games = append(t.Games, tg)
 	}
 
-	t.Games = newGames
+	t.fillStats(ours, theirs)
+}
+
+func (t *Team) fillStats(o, a sideTotals) {
+	t.PointsFor = uint(o.Points)
+	t.PointsAgainst = uint(a.Points)
+	t.OppOppPointsFor = uint(a.Points)
+
+	t.Yards = uint(max(o.yards(), 0))
+	t.OffensivePlays = uint(o.plays())
+	t.YardsPerPlay = o.yardsPerPlay()
+	t.Turnovers = uint(o.turnovers())
+	t.FumblesLost = uint(o.FumblesLost)
+	t.FirstDowns = uint(o.firstDowns())
+	t.Completions = uint(o.PassCompletions)
+	t.PassingAttempts = uint(o.PassAttempts)
+	t.PassingYards = int(o.PassYards)
+	t.PassingTouchdowns = uint(o.PassTDs)
+	t.Interceptions = uint(o.Interceptions)
+	t.PassingNetYardsPerAttempt = o.netYardsPerAttempt()
+	t.PassingFirstDowns = uint(o.FirstDownsPass)
+	t.RushingAttempts = uint(o.RushAttempts)
+	t.RushingYards = int(o.RushYards)
+	t.RushingTouchdowns = uint(o.RushTDs)
+	t.RushingYardsPerAttempt = o.rushYardsPerAttempt()
+	t.RushingFirstDowns = uint(o.FirstDownsRush)
+	t.Penalties = uint(o.Penalties)
+	t.PenaltyYards = uint(o.PenaltyYards)
+	t.PenaltyFirstDowns = uint(o.FirstDownsPenalty)
+	t.DriveCount = uint(o.Drives)
+	t.DriveScoringPercentage = o.driveScoringPct()
+	t.DriveTurnoverPercentage = o.driveTurnoverPct()
+	t.DriveAverageStart = o.driveAvgStart()
+	t.DriveAverageTime = o.driveAvgTime()
+	t.DriveAveragePlays = o.driveAvgPlays()
+	t.DriveAverageYards = o.driveAvgYards()
+	t.DriveAveragePoints = o.driveAvgPoints()
+
+	t.OppYards = int(a.yards())
+	t.OppOffensivePlays = uint(a.plays())
+	t.OppYardsPerPlay = a.yardsPerPlay()
+	t.OppTurnovers = uint(a.turnovers())
+	t.OppFumblesLost = uint(a.FumblesLost)
+	t.OppFirstDowns = uint(a.firstDowns())
+	t.OppCompletions = uint(a.PassCompletions)
+	t.OppPassingAttempts = uint(a.PassAttempts)
+	t.OppPassingYards = int(a.PassYards)
+	t.OppPassingTouchdowns = uint(a.PassTDs)
+	t.OppInterceptions = uint(a.Interceptions)
+	t.OppPassingNetYardsPerAttempt = a.netYardsPerAttempt()
+	t.OppPassingFirstDowns = uint(a.FirstDownsPass)
+	t.OppRushingAttempts = uint(a.RushAttempts)
+	t.OppRushingYards = int(a.RushYards)
+	t.OppRushingTouchdowns = uint(a.RushTDs)
+	t.OppRushingYardsPerAttempt = a.rushYardsPerAttempt()
+	t.OppRushingFirstDowns = uint(a.FirstDownsRush)
+	t.OppPenalties = uint(a.Penalties)
+	t.OppPenaltyYards = uint(a.PenaltyYards)
+	t.OppPenaltyFirstDowns = uint(a.FirstDownsPenalty)
+	t.OppDriveCount = uint(a.Drives)
+	t.OppDriveScoringPercentage = a.driveScoringPct()
+	t.OppDriveTurnoverPercentage = a.driveTurnoverPct()
+	t.OppDriveAverageStart = a.driveAvgStart()
+	t.OppDriveAverageTime = a.driveAvgTime()
+	t.OppDriveAveragePlays = a.driveAvgPlays()
+	t.OppDriveAverageYards = a.driveAvgYards()
+	t.OppDriveAveragePoints = a.driveAvgPoints()
 }
