@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cputans/go-sports/v2/internal/dataset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,10 +61,26 @@ func gz(s string) string {
 	return b.String()
 }
 
+// stubFetch replaces the downloader with fixtures keyed by URL. Any other URL
+// behaves like a 404.
+func stubFetch(t *testing.T, files map[string]string) {
+	t.Helper()
+
+	orig := dataset.Fetch
+	dataset.Fetch = func(url string) (io.ReadCloser, error) {
+		body, ok := files[url]
+		if !ok {
+			return nil, fmt.Errorf("%s: %w", url, dataset.ErrNotFound)
+		}
+		return io.NopCloser(strings.NewReader(body)), nil
+	}
+	t.Cleanup(func() { dataset.Fetch = orig })
+}
+
 // fakeNflverse replaces the downloader with fixtures. Files listed in missing 404.
 func fakeNflverse(t *testing.T, missing ...string) {
 	t.Helper()
-	resetSeasonCache()
+	seasons.Reset()
 
 	files := map[string]string{
 		scheduleURL():  scheduleCSV,
@@ -76,15 +93,8 @@ func fakeNflverse(t *testing.T, missing ...string) {
 		delete(files, m)
 	}
 
-	orig := fetch
-	fetch = func(url string) (io.ReadCloser, error) {
-		body, ok := files[url]
-		if !ok {
-			return nil, fmt.Errorf("%s: %w", url, errNotFound)
-		}
-		return io.NopCloser(strings.NewReader(body)), nil
-	}
-	t.Cleanup(func() { fetch = orig; resetSeasonCache() })
+	stubFetch(t, files)
+	t.Cleanup(seasons.Reset)
 }
 
 func TestSeason(t *testing.T) {

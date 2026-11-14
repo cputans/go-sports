@@ -1,17 +1,14 @@
 package nfl
 
 import (
-	"compress/gzip"
-	"encoding/csv"
 	"errors"
 	"fmt"
-	"io"
 	"math"
-	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/cputans/go-sports/v2/internal/dataset"
 )
 
 // Data in this package comes from the nflverse project
@@ -21,43 +18,15 @@ import (
 var (
 	// ErrStatsNotAvailable is returned when a game has been played (the
 	// schedule has a score) but nflverse hasn't published its player stats yet.
-	ErrStatsNotAvailable = errors.New("player stats not yet available for game")
+	ErrStatsNotAvailable = dataset.ErrStatsNotAvailable
 	// ErrGameNotFound is returned when a game ID is not in the season schedule.
-	ErrGameNotFound = errors.New("game not found")
-
-	errNotFound = errors.New("file not found")
+	ErrGameNotFound = dataset.ErrGameNotFound
 )
 
-// fetch downloads a URL. It is a variable so tests can replace it.
-var fetch = func(url string) (io.ReadCloser, error) {
-	client := &http.Client{Timeout: 5 * time.Minute}
+// seasons caches each season's data for the life of the process.
+var seasons dataset.Cache[seasonData]
 
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
-		}
-
-		resp, err := client.Get(url)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		switch {
-		case resp.StatusCode == http.StatusOK:
-			return resp.Body, nil
-		case resp.StatusCode == http.StatusNotFound:
-			resp.Body.Close()
-			return nil, fmt.Errorf("%s: %w", url, errNotFound)
-		default:
-			resp.Body.Close()
-			lastErr = fmt.Errorf("%s: unexpected status %d", url, resp.StatusCode)
-		}
-	}
-
-	return nil, lastErr
-}
+func loadSeason(year int) (*seasonData, error) { return seasons.Load(year, downloadSeason) }
 
 const nflverseBase = "https://github.com/nflverse/nflverse-data/releases/download"
 
@@ -71,86 +40,6 @@ func snapsURL(year int) string {
 }
 func pbpURL(year int) string {
 	return fmt.Sprintf("%s/pbp/play_by_play_%d.csv.gz", nflverseBase, year)
-}
-
-// csvTable is a streaming CSV reader with access to columns by header name.
-type csvTable struct {
-	r   *csv.Reader
-	idx map[string]int
-	rec []string
-	rc  io.Closer
-}
-
-func openCSV(url string) (*csvTable, error) {
-	body, err := fetch(url)
-	if err != nil {
-		return nil, err
-	}
-
-	var src io.Reader = body
-	closer := io.Closer(body)
-	if strings.HasSuffix(url, ".gz") {
-		gz, err := gzip.NewReader(body)
-		if err != nil {
-			body.Close()
-			return nil, fmt.Errorf("%s: %w", url, err)
-		}
-		src = gz
-	}
-
-	r := csv.NewReader(src)
-	r.FieldsPerRecord = -1
-	r.ReuseRecord = true
-
-	header, err := r.Read()
-	if err != nil {
-		closer.Close()
-		return nil, fmt.Errorf("%s: reading header: %w", url, err)
-	}
-
-	idx := make(map[string]int, len(header))
-	for i, h := range header {
-		idx[h] = i
-	}
-
-	return &csvTable{r: r, idx: idx, rc: closer}, nil
-}
-
-func (t *csvTable) close() { t.rc.Close() }
-
-// next advances to the next record. It returns an error on a malformed file.
-func (t *csvTable) next() (bool, error) {
-	rec, err := t.r.Read()
-	if err == io.EOF {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	t.rec = rec
-	return true, nil
-}
-
-func (t *csvTable) str(col string) string {
-	i, ok := t.idx[col]
-	if !ok || i >= len(t.rec) {
-		return ""
-	}
-	v := t.rec[i]
-	if v == "NA" {
-		return ""
-	}
-	return v
-}
-
-func (t *csvTable) num(col string) float64 {
-	v, _ := strconv.ParseFloat(t.str(col), 64)
-	return v
-}
-
-func (t *csvTable) has(col string) bool {
-	_, ok := t.idx[col]
-	return ok
 }
 
 // gameRow is a row of the nflverse schedule.
@@ -224,37 +113,6 @@ type seasonData struct {
 	pbp    map[string]map[string]*pbpTeam // game id -> PFR team abbr -> play-by-play totals
 }
 
-type seasonEntry struct {
-	once sync.Once
-	data *seasonData
-	err  error
-}
-
-var (
-	seasonsMu sync.Mutex
-	seasons   = map[int]*seasonEntry{}
-)
-
-func resetSeasonCache() {
-	seasonsMu.Lock()
-	defer seasonsMu.Unlock()
-	seasons = map[int]*seasonEntry{}
-}
-
-// loadSeason returns the (cached) data for a season, downloading it on first use.
-func loadSeason(year int) (*seasonData, error) {
-	seasonsMu.Lock()
-	e, ok := seasons[year]
-	if !ok {
-		e = &seasonEntry{}
-		seasons[year] = e
-	}
-	seasonsMu.Unlock()
-
-	e.once.Do(func() { e.data, e.err = downloadSeason(year) })
-	return e.data, e.err
-}
-
 func downloadSeason(year int) (*seasonData, error) {
 	d := &seasonData{
 		year:   year,
@@ -281,7 +139,7 @@ func downloadSeason(year int) (*seasonData, error) {
 		"snap counts":  d.loadSnaps,
 		"play-by-play": d.loadPBP,
 	} {
-		if err := load(); err != nil && !errors.Is(err, errNotFound) {
+		if err := load(); err != nil && !errors.Is(err, dataset.ErrNotFound) {
 			return nil, fmt.Errorf("loading %s: %w", name, err)
 		}
 	}
@@ -290,14 +148,14 @@ func downloadSeason(year int) (*seasonData, error) {
 }
 
 func (d *seasonData) loadSchedule() error {
-	t, err := openCSV(scheduleURL())
+	t, err := dataset.OpenCSV(scheduleURL())
 	if err != nil {
 		return err
 	}
-	defer t.close()
+	defer t.Close()
 
 	for {
-		ok, err := t.next()
+		ok, err := t.Next()
 		if err != nil {
 			return err
 		}
@@ -305,41 +163,41 @@ func (d *seasonData) loadSchedule() error {
 			return nil
 		}
 
-		if t.str("season") != strconv.Itoa(d.year) {
+		if t.Str("season") != strconv.Itoa(d.year) {
 			continue
 		}
 
 		g := &gameRow{
-			ID:       t.str("game_id"),
-			PFRID:    t.str("pfr"),
+			ID:       t.Str("game_id"),
+			PFRID:    t.Str("pfr"),
 			Season:   d.year,
-			Type:     t.str("game_type"),
-			Week:     int(t.num("week")),
-			Away:     t.str("away_team"),
-			Home:     t.str("home_team"),
-			Overtime: t.str("overtime") == "1",
-			Roof:     t.str("roof"),
-			Surface:  t.str("surface"),
-			Temp:     t.str("temp"),
-			Wind:     t.str("wind"),
+			Type:     t.Str("game_type"),
+			Week:     int(t.Num("week")),
+			Away:     t.Str("away_team"),
+			Home:     t.Str("home_team"),
+			Overtime: t.Str("overtime") == "1",
+			Roof:     t.Str("roof"),
+			Surface:  t.Str("surface"),
+			Temp:     t.Str("temp"),
+			Wind:     t.Str("wind"),
 		}
 
-		clock := t.str("gametime")
+		clock := t.Str("gametime")
 		if clock == "" {
 			clock = "00:00"
 		}
-		g.Date, _ = time.Parse("2006-01-02 15:04", t.str("gameday")+" "+clock)
+		g.Date, _ = time.Parse("2006-01-02 15:04", t.Str("gameday")+" "+clock)
 
-		if t.str("home_score") != "" && t.str("away_score") != "" {
+		if t.Str("home_score") != "" && t.Str("away_score") != "" {
 			g.Played = true
-			g.HomeScore = int(t.num("home_score"))
-			g.AwayScore = int(t.num("away_score"))
+			g.HomeScore = int(t.Num("home_score"))
+			g.AwayScore = int(t.Num("away_score"))
 		}
-		if v := t.str("spread_line"); v != "" {
-			g.Spread, g.HasSpread = t.num("spread_line"), true
+		if v := t.Str("spread_line"); v != "" {
+			g.Spread, g.HasSpread = t.Num("spread_line"), true
 		}
-		if v := t.str("total_line"); v != "" {
-			g.Total, g.HasTotal = t.num("total_line"), true
+		if v := t.Str("total_line"); v != "" {
+			g.Total, g.HasTotal = t.Num("total_line"), true
 		}
 
 		d.games = append(d.games, g)
@@ -350,35 +208,35 @@ func (d *seasonData) loadSchedule() error {
 }
 
 func (d *seasonData) loadPlayers() error {
-	t, err := openCSV(playersURL())
+	t, err := dataset.OpenCSV(playersURL())
 	if err != nil {
 		return err
 	}
-	defer t.close()
+	defer t.Close()
 
 	for {
-		ok, err := t.next()
+		ok, err := t.Next()
 		if err != nil {
 			return err
 		}
 		if !ok {
 			return nil
 		}
-		if g, p := t.str("gsis_id"), t.str("pfr_id"); g != "" && p != "" {
+		if g, p := t.Str("gsis_id"), t.Str("pfr_id"); g != "" && p != "" {
 			d.pfrIDs[g] = p
 		}
 	}
 }
 
 func (d *seasonData) loadStats() error {
-	t, err := openCSV(statsURL(d.year))
+	t, err := dataset.OpenCSV(statsURL(d.year))
 	if err != nil {
 		return err
 	}
-	defer t.close()
+	defer t.Close()
 
 	for {
-		ok, err := t.next()
+		ok, err := t.Next()
 		if err != nil {
 			return err
 		}
@@ -386,53 +244,53 @@ func (d *seasonData) loadStats() error {
 			return nil
 		}
 
-		name := t.str("player_display_name")
+		name := t.Str("player_display_name")
 		if name == "" {
-			name = t.str("player_name")
+			name = t.Str("player_name")
 		}
 
 		r := statRow{
-			GSIS:     t.str("player_id"),
+			GSIS:     t.Str("player_id"),
 			Name:     name,
-			Position: t.str("position"),
-			Team:     t.str("team"),
+			Position: t.Str("position"),
+			Team:     t.Str("team"),
 
-			PassCompletions: t.num("completions"),
-			PassAttempts:    t.num("attempts"),
-			PassYards:       t.num("passing_yards"),
-			PassTDs:         t.num("passing_tds"),
-			PassInts:        t.num("passing_interceptions"),
-			Sacked:          t.num("sacks_suffered"),
-			SackedYards:     math.Abs(t.num("sack_yards_lost")),
+			PassCompletions: t.Num("completions"),
+			PassAttempts:    t.Num("attempts"),
+			PassYards:       t.Num("passing_yards"),
+			PassTDs:         t.Num("passing_tds"),
+			PassInts:        t.Num("passing_interceptions"),
+			Sacked:          t.Num("sacks_suffered"),
+			SackedYards:     math.Abs(t.Num("sack_yards_lost")),
 
-			RushAttempts: t.num("carries"),
-			RushYards:    t.num("rushing_yards"),
-			RushTDs:      t.num("rushing_tds"),
+			RushAttempts: t.Num("carries"),
+			RushYards:    t.Num("rushing_yards"),
+			RushTDs:      t.Num("rushing_tds"),
 
-			Targets:    t.num("targets"),
-			Receptions: t.num("receptions"),
-			RecYards:   t.num("receiving_yards"),
-			RecTDs:     t.num("receiving_tds"),
+			Targets:    t.Num("targets"),
+			Receptions: t.Num("receptions"),
+			RecYards:   t.Num("receiving_yards"),
+			RecTDs:     t.Num("receiving_tds"),
 
-			Fumbles:      t.num("rushing_fumbles") + t.num("receiving_fumbles") + t.num("sack_fumbles"),
-			Penalties:    t.num("penalties"),
-			PenaltyYards: t.num("penalty_yards"),
-			FumblesLost:  t.num("rushing_fumbles_lost") + t.num("receiving_fumbles_lost") + t.num("sack_fumbles_lost"),
-			DefInts:      t.num("def_interceptions"),
-			DefIntYards:  t.num("def_interception_yards"),
-			DefIntTDs:    t.num("def_tds"),
-			PassDefended: t.num("def_pass_defended"),
+			Fumbles:      t.Num("rushing_fumbles") + t.Num("receiving_fumbles") + t.Num("sack_fumbles"),
+			Penalties:    t.Num("penalties"),
+			PenaltyYards: t.Num("penalty_yards"),
+			FumblesLost:  t.Num("rushing_fumbles_lost") + t.Num("receiving_fumbles_lost") + t.Num("sack_fumbles_lost"),
+			DefInts:      t.Num("def_interceptions"),
+			DefIntYards:  t.Num("def_interception_yards"),
+			DefIntTDs:    t.Num("def_tds"),
+			PassDefended: t.Num("def_pass_defended"),
 
-			Sacks:            t.num("def_sacks"),
-			TacklesSolo:      t.num("def_tackles_solo"),
-			TackleAssists:    t.num("def_tackle_assists"),
-			TFL:              t.num("def_tackles_for_loss"),
-			QBHits:           t.num("def_qb_hits"),
-			FumblesRecovered: t.num("fumble_recovery_own") + t.num("fumble_recovery_opp"),
-			FumblesForced:    t.num("def_fumbles_forced"),
+			Sacks:            t.Num("def_sacks"),
+			TacklesSolo:      t.Num("def_tackles_solo"),
+			TackleAssists:    t.Num("def_tackle_assists"),
+			TFL:              t.Num("def_tackles_for_loss"),
+			QBHits:           t.Num("def_qb_hits"),
+			FumblesRecovered: t.Num("fumble_recovery_own") + t.Num("fumble_recovery_opp"),
+			FumblesForced:    t.Num("def_fumbles_forced"),
 		}
 
-		gid := t.str("game_id")
+		gid := t.Str("game_id")
 		if gid == "" || r.GSIS == "" {
 			continue
 		}
@@ -441,14 +299,14 @@ func (d *seasonData) loadStats() error {
 }
 
 func (d *seasonData) loadSnaps() error {
-	t, err := openCSV(snapsURL(d.year))
+	t, err := dataset.OpenCSV(snapsURL(d.year))
 	if err != nil {
 		return err
 	}
-	defer t.close()
+	defer t.Close()
 
 	for {
-		ok, err := t.next()
+		ok, err := t.Next()
 		if err != nil {
 			return err
 		}
@@ -456,23 +314,23 @@ func (d *seasonData) loadSnaps() error {
 			return nil
 		}
 
-		gid := t.str("game_id")
-		pfr := t.str("pfr_player_id")
+		gid := t.Str("game_id")
+		pfr := t.Str("pfr_player_id")
 		if gid == "" || pfr == "" {
 			continue
 		}
 
 		d.snaps[gid] = append(d.snaps[gid], snapRow{
 			PFRID:    pfr,
-			Name:     t.str("player"),
-			Position: t.str("position"),
-			Team:     t.str("team"),
-			OffSnaps: t.num("offense_snaps"),
-			OffPct:   t.num("offense_pct"),
-			DefSnaps: t.num("defense_snaps"),
-			DefPct:   t.num("defense_pct"),
-			STSnaps:  t.num("st_snaps"),
-			STPct:    t.num("st_pct"),
+			Name:     t.Str("player"),
+			Position: t.Str("position"),
+			Team:     t.Str("team"),
+			OffSnaps: t.Num("offense_snaps"),
+			OffPct:   t.Num("offense_pct"),
+			DefSnaps: t.Num("defense_snaps"),
+			DefPct:   t.Num("defense_pct"),
+			STSnaps:  t.Num("st_snaps"),
+			STPct:    t.Num("st_pct"),
 		})
 	}
 }
@@ -530,11 +388,11 @@ func parseYardLine(s, offense string) (float64, bool) {
 // each player's longest pass, rush and reception, and each team's first downs
 // and drives.
 func (d *seasonData) loadPBP() error {
-	t, err := openCSV(pbpURL(d.year))
+	t, err := dataset.OpenCSV(pbpURL(d.year))
 	if err != nil {
 		return err
 	}
-	defer t.close()
+	defer t.Close()
 
 	bump := func(gid, id string, set func(l *longest)) {
 		if id == "" {
@@ -579,7 +437,7 @@ func (d *seasonData) loadPBP() error {
 	var order []string
 
 	for {
-		ok, err := t.next()
+		ok, err := t.Next()
 		if err != nil {
 			return err
 		}
@@ -587,24 +445,24 @@ func (d *seasonData) loadPBP() error {
 			break
 		}
 
-		if t.str("play_deleted") == "1" {
+		if t.Str("play_deleted") == "1" {
 			continue
 		}
 
-		gid := t.str("game_id")
-		playType := t.str("play_type")
-		posteam := t.str("posteam")
-		yards := int(t.num("yards_gained"))
+		gid := t.Str("game_id")
+		playType := t.Str("play_type")
+		posteam := t.Str("posteam")
+		yards := int(t.Num("yards_gained"))
 
 		if posteam != "" {
 			p := team(gid, posteam)
-			if t.str("first_down_rush") == "1" {
+			if t.Str("first_down_rush") == "1" {
 				p.FirstDownsRush++
 			}
-			if t.str("first_down_pass") == "1" {
+			if t.Str("first_down_pass") == "1" {
 				p.FirstDownsPass++
 			}
-			if t.str("first_down_penalty") == "1" {
+			if t.Str("first_down_penalty") == "1" {
 				p.FirstDownsPenalty++
 			}
 		}
@@ -612,7 +470,7 @@ func (d *seasonData) loadPBP() error {
 		// Drives: attributes repeat on every row of the drive, so read them
 		// once. The possessing team comes from a real offensive play, since
 		// kickoff rows can carry the kicking team.
-		if fd := t.str("fixed_drive"); fd != "" && t.str("fixed_drive_result") != "" {
+		if fd := t.Str("fixed_drive"); fd != "" && t.Str("fixed_drive_result") != "" {
 			key := gid + "|" + fd
 			a := drives[key]
 			if a == nil {
@@ -620,11 +478,11 @@ func (d *seasonData) loadPBP() error {
 				drives[key] = a
 				order = append(order, key)
 
-				a.drive.Result = t.str("fixed_drive_result")
-				a.drive.Score = t.str("drive_ended_with_score") == "1"
-				a.drive.Plays = int(t.num("drive_play_count"))
-				a.drive.Seconds = parseClock(t.str("drive_time_of_possession"))
-				a.drive.Yards = int(t.num("drive_yards_penalized"))
+				a.drive.Result = t.Str("fixed_drive_result")
+				a.drive.Score = t.Str("drive_ended_with_score") == "1"
+				a.drive.Plays = int(t.Num("drive_play_count"))
+				a.drive.Seconds = parseClock(t.Str("drive_time_of_possession"))
+				a.drive.Yards = int(t.Num("drive_yards_penalized"))
 				switch a.drive.Result {
 				case "Touchdown":
 					a.drive.Points = 7
@@ -636,26 +494,26 @@ func (d *seasonData) loadPBP() error {
 			if posteam != "" && (!a.set || a.team == "") &&
 				(playType == "pass" || playType == "run" || playType == "punt" || playType == "field_goal") {
 				a.team, a.set = posteam, true
-				if sy, ok := parseYardLine(t.str("drive_start_yard_line"), posteam); ok {
+				if sy, ok := parseYardLine(t.Str("drive_start_yard_line"), posteam); ok {
 					a.drive.StartOwn = sy
 				}
 			}
 
-			if a.set && posteam == a.team && (playType == "pass" || playType == "run") && t.str("two_point_attempt") != "1" {
+			if a.set && posteam == a.team && (playType == "pass" || playType == "run") && t.Str("two_point_attempt") != "1" {
 				a.drive.Yards += yards
 			}
 		}
 
-		if t.str("two_point_attempt") == "1" || t.str("sack") == "1" {
+		if t.Str("two_point_attempt") == "1" || t.Str("sack") == "1" {
 			continue
 		}
 
 		switch {
-		case t.str("pass_attempt") == "1" && t.str("complete_pass") == "1":
-			bump(gid, t.str("passer_player_id"), func(l *longest) { l.Pass = max(l.Pass, yards) })
-			bump(gid, t.str("receiver_player_id"), func(l *longest) { l.Receive = max(l.Receive, yards) })
-		case t.str("rush_attempt") == "1":
-			bump(gid, t.str("rusher_player_id"), func(l *longest) { l.Rush = max(l.Rush, yards) })
+		case t.Str("pass_attempt") == "1" && t.Str("complete_pass") == "1":
+			bump(gid, t.Str("passer_player_id"), func(l *longest) { l.Pass = max(l.Pass, yards) })
+			bump(gid, t.Str("receiver_player_id"), func(l *longest) { l.Receive = max(l.Receive, yards) })
+		case t.Str("rush_attempt") == "1":
+			bump(gid, t.Str("rusher_player_id"), func(l *longest) { l.Rush = max(l.Rush, yards) })
 		}
 	}
 
