@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cputans/go-sports/internal"
+	"github.com/cputans/go-sports/v2/internal"
 )
 
 type Player struct {
